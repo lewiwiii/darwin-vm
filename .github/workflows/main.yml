@@ -1,0 +1,71 @@
+name: Build Darwin VM Components
+
+on:
+  workflow_dispatch:
+
+jobs:
+  extract-firmware:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Extraction Dependencies
+        run: |
+          brew install jq ipsw
+
+      - name: Download and Process Apple Firmware Files
+        run: |
+          ./get_files.sh
+
+      - name: Silence Annoying Kernel Logs
+        run: |
+          if [ -f ./silence_logs.py ]; then
+            ./silence_logs.py firmware/bootkc
+          fi
+
+      - name: Repair Ramdisk Disk Permissions
+        run: |
+          sudo ./fix_perms.sh firmware/ramdisk.dmg <<< "y"
+
+      - name: Compress Firmware Folder
+        run: |
+          zip -r firmware-assets.zip firmware/
+
+      - name: Upload Finished Firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: darwin-vm-firmware
+          path: firmware-assets.zip
+
+  compile-qemu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux Linux Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libpixman-1-dev libglib2.0-dev libninja-dev python3-pip
+
+      - name: Compile QEMU SPTM Native Target
+        run: |
+          cd qemu-sptm
+          mkdir build
+          cd build
+          ../configure --target-list=aarch64-softmmu --disable-werror
+          make -j$(nproc)
+
+      - name: Stage compiled binary
+        run: |
+          mkdir qemu-dist
+          cp qemu-sptm/build/qemu-system-aarch64 qemu-dist/
+
+      - name: Upload Compiled QEMU Engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: darwin-vm-qemu-linux
+          path: qemu-dist/
