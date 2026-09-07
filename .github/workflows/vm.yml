@@ -20,10 +20,9 @@ jobs:
         with:
           submodules: recursive
           
-      - name: Install ipsw Tool
-        run:
-          brew trust blacktop/tap
-          brew install blacktop/tap/ipsw 
+      - name: Install ipsw
+        run: |
+          brew install ipsw
         
       - name: Set up Environment & Run get_files
         env:
