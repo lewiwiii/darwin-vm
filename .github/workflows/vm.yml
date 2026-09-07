@@ -19,7 +19,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
+          
+      - name: Install ipsw Tool
+        run: brew install blacktop/tap/ipsw 
+        
       - name: Set up Environment & Run get_files
         env:
           DEVNAME: ${{ github.event.inputs.device_name }}
