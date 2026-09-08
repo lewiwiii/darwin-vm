@@ -53,43 +53,51 @@ jobs:
           ATTACH_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk.dmg)"
           echo "$ATTACH_OUTPUT"
 
-          DEVICE="$(printf '%s\n' "$ATTACH_OUTPUT" | awk 'NR==1 {print $1}')"
-
-          if [ -z "$DEVICE" ]; then
-            echo "ERROR: Failed to obtain ramdisk device"
-            exit 1
+          # hdiutil returns:
+          #   /dev/diskX       whole image
+          #   /dev/diskY       APFS container
+          #   /dev/diskYs1     APFS volume
+          #
+          # We need the APFS container, not the whole image.        
+          CONTAINER_DEVICE="$(
+              printf '%s\n' "$ATTACH_OUTPUT" |
+              awk 'NR==2 {print $1}'
+          )"
+          if [ -z "$CONTAINER_DEVICE" ]; then
+             echo "ERROR: Failed to identify APFS container"
+             exit 1
           fi
 
-          echo "Using device: $DEVICE"
+          echo "APFS container device: $CONTAINER_DEVICE"
 
           echo "APFS information before resize:"
-          diskutil apfs list "$DEVICE" || true
+          diskutil apfs list "$CONTAINER_DEVICE"
 
-          echo "Resizing APFS container..."
+          echo "Resizing APFS container to 1.5G..."
 
-          diskutil apfs resizeContainer "$DEVICE" 1.5G
+          diskutil apfs resizeContainer "$CONTAINER_DEVICE" 1.5G
 
           echo "APFS information after resize:"
-          diskutil apfs list "$DEVICE"
+          diskutil apfs list "$CONTAINER_DEVICE"
 
           echo "Detaching ramdisk..."
 
-          hdiutil detach "$DEVICE"
+          hdiutil detach "$CONTAINER_DEVICE"
 
           echo "Ramdisk resize complete."
           '''
 
           with path.open("w") as f:
-              for line in lines:
-                  f.write(line)
+          for line in lines:
+          f.write(line)
 
-                  if "Patching" in line and "echo" in line and not injected:
-                      f.write(injection)
-                      injected = True
+          if "Patching" in line and "echo" in line and not injected:
+          f.write(injection)
+          injected = True
 
           if not injected:
-              raise SystemExit(
-                  "ERROR: Expected 'Patching' echo was not found in get_files.sh"
+          raise SystemExit(
+            "ERROR: Expected 'Patching' echo was not found in get_files.sh"
               )
           PY
 
