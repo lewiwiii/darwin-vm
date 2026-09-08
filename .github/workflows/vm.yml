@@ -24,7 +24,7 @@ jobs:
         run: |
           brew install ipsw
         
-      - name: Set up Environment & Run get_files
+            - name: Set up Environment & Run get_files
         env:
           DEVNAME: ${{ github.event.inputs.device_name }}
           URL: ${{ github.event.inputs.ipsw_url }}
@@ -34,8 +34,6 @@ jobs:
 
           path = Path("get_files.sh")
           lines = path.read_text().splitlines(True)
-
-          injected = False
 
           injection = r'''
           echo "Converting ramdisk to read/write image..."
@@ -53,19 +51,19 @@ jobs:
           ATTACH_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk.dmg)"
           echo "$ATTACH_OUTPUT"
 
-          # hdiutil returns:
-          #   /dev/diskX       whole image
-          #   /dev/diskY       APFS container
-          #   /dev/diskYs1     APFS volume
-          #
-          # We need the APFS container, not the whole image.        
+          # hdiutil output:
+          # /dev/diskX       whole disk image
+          # /dev/diskY       APFS container
+          # /dev/diskYs1     APFS volume
+
           CONTAINER_DEVICE="$(
-              printf '%s\n' "$ATTACH_OUTPUT" |
-              awk 'NR==2 {print $1}'
+            printf '%s\n' "$ATTACH_OUTPUT" |
+            awk 'NR==2 {print $1}'
           )"
+
           if [ -z "$CONTAINER_DEVICE" ]; then
-             echo "ERROR: Failed to identify APFS container"
-             exit 1
+            echo "ERROR: Failed to identify APFS container"
+            exit 1
           fi
 
           echo "APFS container device: $CONTAINER_DEVICE"
@@ -87,18 +85,25 @@ jobs:
           echo "Ramdisk resize complete."
           '''
 
-          with path.open("w") as f:
+          output = []
+
           for line in lines:
-          f.write(line)
+              output.append(line)
 
-          if "Patching" in line and "echo" in line and not injected:
-          f.write(injection)
-          injected = True
+              if "Patching" in line and "echo" in line:
+                  output.append(injection)
+                  break
 
-          if not injected:
-          raise SystemExit(
-            "ERROR: Expected 'Patching' echo was not found in get_files.sh"
+          else:
+              raise SystemExit(
+                  "ERROR: Could not find the expected Patching echo in get_files.sh"
               )
+
+          # Keep everything after the injection point.
+          index = len(output) - 1
+          output.extend(lines[index:])
+
+          path.write_text("".join(output))
           PY
 
           chmod +x get_files.sh fix_perms.sh
