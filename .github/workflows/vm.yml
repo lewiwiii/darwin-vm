@@ -24,7 +24,7 @@ jobs:
         run: |
           brew install ipsw
         
-            - name: Set up Environment & Run get_files
+      - name: Set up Environment & Run get_files
         env:
           DEVNAME: ${{ github.event.inputs.device_name }}
           URL: ${{ github.event.inputs.ipsw_url }}
