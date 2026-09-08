@@ -31,16 +31,39 @@ jobs:
         run: |
           python3 -c '
           with open("get_files.sh", "r") as f:
-              lines = f.readlines()
+              content = f.read()
+
+          target = "ipsw extract firmware/ramdisk.dmg"
+          replacement = """ipsw extract firmware/ramdisk.dmg
+
+          echo "Expanding ramdisk to 1.5GB..."
+          OLD_MNT=$(mktemp -d)
+          NEW_MNT=$(mktemp -d)
+          
+          ORIG_DEV=$(hdiutil attach -nobrowse firmware/ramdisk.dmg | grep Apple_APFS | awk "{print \\$1}")
+          sudo mount -t apfs "$ORIG_DEV" "$OLD_MNT"
+          
+          hdiutil create -size 1.5G -fs APFS -volname "com.apple.driver.BootCache" firmware/ramdisk_large.dmg
+          NEW_DEV=$(hdiutil attach -nobrowse firmware/ramdisk_large.dmg | grep Apple_APFS | awk "{print \\$1}")
+          sudo mount -t apfs "$NEW_DEV" "$NEW_MNT"
+          
+          sudo cp -a "$OLD_MNT/"* "$NEW_MNT/"
+          
+          sudo diskutil eject "$ORIG_DEV" || sudo hdiutil detach "$ORIG_DEV"
+          sudo diskutil eject "$NEW_DEV" || sudo hdiutil detach "$NEW_DEV"
+          
+          mv firmware/ramdisk_large.dmg firmware/ramdisk.dmg
+          rm -rf "$OLD_MNT" "$NEW_MNT"
+          """
+
+          if target in content:
+              content = content.replace(target, replacement, 1)
+          else:
+              # Fallback injection point if string varies slightly
+              content = content.replace("Patching firmware/ramdisk.dmg", replacement + "\nPatching firmware/ramdisk.dmg", 1)
 
           with open("get_files.sh", "w") as f:
-              for line in lines:
-                  f.write(line)
-                  # Inject safely right after the echo statement
-                  if "Patching" in line and "echo" in line:
-                      f.write("    hdiutil convert firmware/ramdisk.dmg -format UDRW -o firmware/ramdisk_rw.dmg\n")
-                      f.write("    mv firmware/ramdisk_rw.dmg firmware/ramdisk.dmg\n")
-                      f.write("    hdiutil resize -size 1.5G firmware/ramdisk.dmg\n")
+              f.write(content)
           '
 
           chmod +x get_files.sh fix_perms.sh
