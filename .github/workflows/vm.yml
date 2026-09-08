@@ -32,38 +32,40 @@ jobs:
           python3 -c '
           with open("get_files.sh", "r") as f:
               content = f.read()
-
-          target = "ipsw extract firmware/ramdisk.dmg"
-          replacement = """ipsw extract firmware/ramdisk.dmg
-
-          echo "Expanding ramdisk to 1.5GB..."
-          OLD_MNT=$(mktemp -d)
-          NEW_MNT=$(mktemp -d)
+          target_code = "Patching firmware/ramdisk.dmg"
+          replacement_code = """Patching firmware/ramdisk.dmg
+          echo "Converting and resizing ramdisk to 1.5GB..."
+          hdiutil convert firmware/ramdisk.dmg -format UDRW -o firmware/ramdisk_rw.dmg
+          mv firmware/ramdisk_rw.dmg firmware/ramdisk.dmg
           
-          ORIG_DEV=$(hdiutil attach -nobrowse firmware/ramdisk.dmg | grep Apple_APFS | awk "{print \\$1}")
-          sudo mount -t apfs "$ORIG_DEV" "$OLD_MNT"
-          
-          hdiutil create -size 1.5G -fs APFS -volname "com.apple.driver.BootCache" firmware/ramdisk_large.dmg
-          NEW_DEV=$(hdiutil attach -nobrowse firmware/ramdisk_large.dmg | grep Apple_APFS | awk "{print \\$1}")
-          sudo mount -t apfs "$NEW_DEV" "$NEW_MNT"
-          
-          sudo cp -a "$OLD_MNT/"* "$NEW_MNT/"
-          
-          sudo diskutil eject "$ORIG_DEV" || sudo hdiutil detach "$ORIG_DEV"
-          sudo diskutil eject "$NEW_DEV" || sudo hdiutil detach "$NEW_DEV"
-          
-          mv firmware/ramdisk_large.dmg firmware/ramdisk.dmg
-          rm -rf "$OLD_MNT" "$NEW_MNT"
+          hdiutil resize -size 1.5G firmware/ramdisk.dmg || {
+              echo "In-place resize failed, rebuilding container..."
+              TEMP_MNT=$(mktemp -d)
+              NEW_MNT=$(mktemp -d)
+              ORIG_DEV=$(hdiutil attach -nobrowse firmware/ramdisk.dmg | grep Apple_APFS | awk "{print \\$1}")
+              sudo mount -t apfs "$ORIG_DEV" "$TEMP_MNT"
+              
+              hdiutil create -size 1.5G -fs APFS -volname "com.apple.driver.BootCache" firmware/ramdisk_large.dmg
+              NEW_DEV=$(hdiutil attach -nobrowse firmware/ramdisk_large.dmg | grep Apple_APFS | awk "{print \\$1}")
+              sudo mount -t apfs "$NEW_DEV" "$NEW_MNT"
+              
+              sudo cp -a "$TEMP_MNT/"* "$NEW_MNT/"
+              sudo diskutil eject "$ORIG_DEV" || sudo hdiutil detach "$ORIG_DEV"
+              sudo diskutil eject "$NEW_DEV" || sudo hdiutil detach "$NEW_DEV"
+              
+              mv firmware/ramdisk_large.dmg firmware/ramdisk.dmg
+              rm -rf "$TEMP_MNT" "$NEW_MNT"
+          }
           """
 
-          if target in content:
-              content = content.replace(target, replacement, 1)
+          if target_code in content:
+              content = content.replace(target_code, replacement_code, 1)
+              with open("get_files.sh", "w") as f:
+                  f.write(content)
+              print("Successfully patched get_files.sh")
           else:
-              # Fallback injection point if string varies slightly
-              content = content.replace("Patching firmware/ramdisk.dmg", replacement + "\nPatching firmware/ramdisk.dmg", 1)
-
-          with open("get_files.sh", "w") as f:
-              f.write(content)
+              print("Error: Target code not found in get_files.sh")
+              exit(1)
           '
 
           chmod +x get_files.sh fix_perms.sh
