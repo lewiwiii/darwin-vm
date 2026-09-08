@@ -29,19 +29,69 @@ jobs:
           DEVNAME: ${{ github.event.inputs.device_name }}
           URL: ${{ github.event.inputs.ipsw_url }}
         run: |
-          python3 -c '
-          with open("get_files.sh", "r") as f:
-              lines = f.readlines()
+          python3 - <<'PY'
+          from pathlib import Path
 
-          with open("get_files.sh", "w") as f:
+          path = Path("get_files.sh")
+          lines = path.read_text().splitlines(True)
+
+          injected = False
+
+          injection = r'''
+          echo "Converting ramdisk to read/write image..."
+
+          rm -f firmware/ramdisk_rw.dmg
+
+          hdiutil convert firmware/ramdisk.dmg \
+            -format UDRW \
+            -o firmware/ramdisk_rw.dmg
+
+          mv firmware/ramdisk_rw.dmg firmware/ramdisk.dmg
+
+          echo "Attaching ramdisk image..."
+
+          ATTACH_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk.dmg)"
+          echo "$ATTACH_OUTPUT"
+
+          DEVICE="$(printf '%s\n' "$ATTACH_OUTPUT" | awk 'NR==1 {print $1}')"
+
+          if [ -z "$DEVICE" ]; then
+            echo "ERROR: Failed to obtain ramdisk device"
+            exit 1
+          fi
+
+          echo "Using device: $DEVICE"
+
+          echo "APFS information before resize:"
+          diskutil apfs list "$DEVICE" || true
+
+          echo "Resizing APFS container..."
+
+          diskutil apfs resizeContainer "$DEVICE" 1.5G
+
+          echo "APFS information after resize:"
+          diskutil apfs list "$DEVICE"
+
+          echo "Detaching ramdisk..."
+
+          hdiutil detach "$DEVICE"
+
+          echo "Ramdisk resize complete."
+          '''
+
+          with path.open("w") as f:
               for line in lines:
                   f.write(line)
-                  # Inject safely right after the echo statement
-                  if "Patching" in line and "echo" in line:
-                      f.write("    hdiutil convert firmware/ramdisk.dmg -format UDRW -o firmware/ramdisk_rw.dmg\n")
-                      f.write("    mv firmware/ramdisk_rw.dmg firmware/ramdisk.dmg\n")
-                      f.write("    hdiutil resize -size 1.5G firmware/ramdisk.dmg\n")
-          '
+
+                  if "Patching" in line and "echo" in line and not injected:
+                      f.write(injection)
+                      injected = True
+
+          if not injected:
+              raise SystemExit(
+                  "ERROR: Expected 'Patching' echo was not found in get_files.sh"
+              )
+          PY
 
           chmod +x get_files.sh fix_perms.sh
           ./get_files.sh
