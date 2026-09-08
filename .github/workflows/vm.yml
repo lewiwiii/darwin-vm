@@ -29,6 +29,10 @@ jobs:
           DEVNAME: ${{ github.event.inputs.device_name }}
           URL: ${{ github.event.inputs.ipsw_url }}
         run: |
+          perl -pi -e 's/hdiutil resize -size [a-zA-Z0-9]+/hdiutil resize -size 1G/g' get_files.sh
+          
+          perl -pi -e 's/(hdiutil attach)/hdiutil resize -size 1G "\$RAMDISK" || true\n$1/g' get_files.sh
+          
           chmod +x get_files.sh fix_perms.sh
           ./get_files.sh
 
