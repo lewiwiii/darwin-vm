@@ -31,19 +31,16 @@ jobs:
         run: |
           python3 -c '
           with open("get_files.sh", "r") as f:
-              content = f.read()
+              lines = f.readlines()
 
-          target = "hdiutil attach"
-          replacement = """
-          echo "Converting and expanding ramdisk..."
-          hdiutil convert firmware/ramdisk.dmg -format UDRW -o firmware/ramdisk_rw.dmg
-          mv firmware/ramdisk_rw.dmg firmware/ramdisk.dmg
-          hdiutil resize -size 1.5G firmware/ramdisk.dmg
-          hdiutil attach"""
-
-          new_content = content.replace(target, replacement, 1)
           with open("get_files.sh", "w") as f:
-              f.write(new_content)
+              for line in lines:
+                  f.write(line)
+                  # Inject safely right after the echo statement
+                  if "Patching" in line and "echo" in line:
+                      f.write("    hdiutil convert firmware/ramdisk.dmg -format UDRW -o firmware/ramdisk_rw.dmg\n")
+                      f.write("    mv firmware/ramdisk_rw.dmg firmware/ramdisk.dmg\n")
+                      f.write("    hdiutil resize -size 1.5G firmware/ramdisk.dmg\n")
           '
 
           chmod +x get_files.sh fix_perms.sh
