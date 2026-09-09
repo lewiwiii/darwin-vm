@@ -39,6 +39,8 @@ jobs:
           echo "Converting ramdisk to read/write image..."
 
           rm -f firmware/ramdisk_rw.dmg
+          rm -f firmware/ramdisk_large.dmg
+          rm -f firmware/ramdisk_large.raw
 
           hdiutil convert firmware/ramdisk.dmg \
             -format UDRW \
@@ -46,13 +48,71 @@ jobs:
 
           mv firmware/ramdisk_rw.dmg firmware/ramdisk.dmg
 
-          echo "=== IMAGE INFO ==="
+          echo "Original image:"
           hdiutil imageinfo firmware/ramdisk.dmg
 
-          echo "=== PARTITION MAP ==="
-          hdiutil partitionquery firmware/ramdisk.dmg || true
+          echo "Creating 1.5G raw backing file..."
 
-          echo "Attaching ramdisk image..."
+          mkfile 1.5g firmware/ramdisk_large.raw
+
+          echo "Converting raw backing file to UDRW..."
+
+          hdiutil convert firmware/ramdisk_large.raw \
+            -format UDRW \
+            -o firmware/ramdisk_large.dmg
+
+          rm -f firmware/ramdisk_large.raw
+
+          echo "Attaching original ramdisk..."
+
+          SOURCE_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk.dmg)"
+          echo "$SOURCE_OUTPUT"
+
+          SOURCE_DEVICE="$(printf '%s\n' "$SOURCE_OUTPUT" | awk 'NR==1 {print $1}')"
+
+          if [ -z "$SOURCE_DEVICE" ]; then
+            echo "ERROR: Could not identify source device"
+            exit 1
+          fi
+
+          echo "Source device: $SOURCE_DEVICE"
+
+          echo "Attaching large raw image..."
+
+          DEST_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk_large.dmg)"
+          echo "$DEST_OUTPUT"
+
+          DEST_DEVICE="$(printf '%s\n' "$DEST_OUTPUT" | awk 'NR==1 {print $1}')"
+
+          if [ -z "$DEST_DEVICE" ]; then
+            echo "ERROR: Could not identify destination device"
+            hdiutil detach "$SOURCE_DEVICE" || true
+            exit 1
+          fi
+
+          echo "Destination device: $DEST_DEVICE"
+
+          echo "Copying original 130MB APFS image..."
+
+          dd if="$SOURCE_DEVICE" \
+             of="$DEST_DEVICE" \
+             bs=1m \
+             count=125 \
+             conv=sync
+
+          sync
+
+          echo "Detaching source..."
+
+          hdiutil detach "$SOURCE_DEVICE"
+
+          echo "Detaching destination..."
+
+          hdiutil detach "$DEST_DEVICE"
+
+          mv firmware/ramdisk_large.dmg firmware/ramdisk.dmg
+
+          echo "Attaching expanded image..."
 
           ATTACH_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk.dmg)"
           echo "$ATTACH_OUTPUT"
@@ -63,20 +123,29 @@ jobs:
           )"
 
           if [ -z "$CONTAINER_DEVICE" ]; then
-            echo "ERROR: Failed to identify APFS container"
+            echo "ERROR: Could not identify APFS container"
             exit 1
           fi
 
-          echo "APFS container device: $CONTAINER_DEVICE"
+          echo "APFS container: $CONTAINER_DEVICE"
 
-          echo "=== APFS INFORMATION ==="
+          echo "APFS information before resize:"
           diskutil apfs list "$CONTAINER_DEVICE"
 
-          echo "Detaching ramdisk..."
+          echo "Growing APFS container to 1.5G..."
+
+          diskutil apfs resizeContainer \
+            "$CONTAINER_DEVICE" \
+            1.5G
+
+          echo "APFS information after resize:"
+          diskutil apfs list "$CONTAINER_DEVICE"
+
+          echo "Detaching expanded ramdisk..."
 
           hdiutil detach "$CONTAINER_DEVICE"
 
-          echo "Ramdisk inspection complete."
+          echo "Expanded ramdisk ready."
           '''
 
           output = []
