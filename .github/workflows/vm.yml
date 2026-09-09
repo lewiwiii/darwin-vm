@@ -40,7 +40,6 @@ jobs:
 
           rm -f firmware/ramdisk_rw.dmg
           rm -f firmware/ramdisk_large.dmg
-          rm -f firmware/ramdisk_large.raw
 
           hdiutil convert firmware/ramdisk.dmg \
             -format UDRW \
@@ -48,20 +47,19 @@ jobs:
 
           mv firmware/ramdisk_rw.dmg firmware/ramdisk.dmg
 
-          echo "Original image:"
+          echo "Original image information:"
           hdiutil imageinfo firmware/ramdisk.dmg
 
-          echo "Creating 1.5G raw backing file..."
+          echo "Creating 1.5G raw UDRW image..."
 
-          mkfile 1.5g firmware/ramdisk_large.raw
-
-          echo "Converting raw backing file to UDRW..."
-
-          hdiutil convert firmware/ramdisk_large.raw \
+          hdiutil create \
+            -size 1.5g \
+            -layout NONE \
             -format UDRW \
             -o firmware/ramdisk_large.dmg
 
-          rm -f firmware/ramdisk_large.raw
+          echo "Large image information:"
+          hdiutil imageinfo firmware/ramdisk_large.dmg
 
           echo "Attaching original ramdisk..."
 
@@ -77,7 +75,7 @@ jobs:
 
           echo "Source device: $SOURCE_DEVICE"
 
-          echo "Attaching large raw image..."
+          echo "Attaching large image..."
 
           DEST_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk_large.dmg)"
           echo "$DEST_OUTPUT"
@@ -92,27 +90,28 @@ jobs:
 
           echo "Destination device: $DEST_DEVICE"
 
-          echo "Copying original 130MB APFS image..."
+          echo "Copying original APFS image..."
 
           dd if="$SOURCE_DEVICE" \
              of="$DEST_DEVICE" \
-             bs=1m \
-             count=125 \
-             conv=sync
+             bs=512 \
+             count=253952
 
           sync
 
-          echo "Detaching source..."
+          echo "Detaching source image..."
 
           hdiutil detach "$SOURCE_DEVICE"
 
-          echo "Detaching destination..."
+          echo "Detaching destination image..."
 
           hdiutil detach "$DEST_DEVICE"
 
+          echo "Replacing original ramdisk..."
+
           mv firmware/ramdisk_large.dmg firmware/ramdisk.dmg
 
-          echo "Attaching expanded image..."
+          echo "Attaching expanded ramdisk..."
 
           ATTACH_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk.dmg)"
           echo "$ATTACH_OUTPUT"
@@ -127,9 +126,10 @@ jobs:
             exit 1
           fi
 
-          echo "APFS container: $CONTAINER_DEVICE"
+          echo "APFS container device: $CONTAINER_DEVICE"
 
           echo "APFS information before resize:"
+
           diskutil apfs list "$CONTAINER_DEVICE"
 
           echo "Growing APFS container to 1.5G..."
@@ -139,6 +139,7 @@ jobs:
             1.5G
 
           echo "APFS information after resize:"
+
           diskutil apfs list "$CONTAINER_DEVICE"
 
           echo "Detaching expanded ramdisk..."
