@@ -46,15 +46,16 @@ jobs:
 
           mv firmware/ramdisk_rw.dmg firmware/ramdisk.dmg
 
+          echo "=== IMAGE INFO ==="
+          hdiutil imageinfo firmware/ramdisk.dmg
+
+          echo "=== PARTITION MAP ==="
+          hdiutil partitionquery firmware/ramdisk.dmg || true
+
           echo "Attaching ramdisk image..."
 
           ATTACH_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk.dmg)"
           echo "$ATTACH_OUTPUT"
-
-          # hdiutil output:
-          # /dev/diskX       whole disk image
-          # /dev/diskY       APFS container
-          # /dev/diskYs1     APFS volume
 
           CONTAINER_DEVICE="$(
             printf '%s\n' "$ATTACH_OUTPUT" |
@@ -68,40 +69,30 @@ jobs:
 
           echo "APFS container device: $CONTAINER_DEVICE"
 
-          echo "APFS information before resize:"
-          diskutil apfs list "$CONTAINER_DEVICE"
-
-          echo "Resizing APFS container to 1.5G..."
-
-          diskutil apfs resizeContainer "$CONTAINER_DEVICE" 1.5G
-
-          echo "APFS information after resize:"
+          echo "=== APFS INFORMATION ==="
           diskutil apfs list "$CONTAINER_DEVICE"
 
           echo "Detaching ramdisk..."
 
           hdiutil detach "$CONTAINER_DEVICE"
 
-          echo "Ramdisk resize complete."
+          echo "Ramdisk inspection complete."
           '''
 
           output = []
+          injected = False
 
           for line in lines:
               output.append(line)
 
-              if "Patching" in line and "echo" in line:
+              if "Patching" in line and "echo" in line and not injected:
                   output.append(injection)
-                  break
+                  injected = True
 
-          else:
+          if not injected:
               raise SystemExit(
                   "ERROR: Could not find the expected Patching echo in get_files.sh"
               )
-
-          # Keep everything after the injection point.
-          index = len(output) - 1
-          output.extend(lines[index:])
 
           path.write_text("".join(output))
           PY
