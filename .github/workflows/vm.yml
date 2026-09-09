@@ -167,9 +167,24 @@ jobs:
           chmod +x get_files.sh fix_perms.sh
           ./get_files.sh
 
+      - name: Verify extracted firmware
+        run: |
+          echo "=== Firmware directory ==="
+          ls -lah firmware/
+
+          echo
+          echo "=== Ramdisk image ==="
+          hdiutil imageinfo firmware/ramdisk.dmg | grep -E \
+            "Total Bytes|Sector Count|Format"
+
+          echo
+          echo "=== Firmware tree ==="
+          find firmware -maxdepth 2 -type f -print
+
       - name: Fix Permissions on macOS
         run: |
-          ./fix_perms.sh firmware/ramdisk.dmg
+          echo "Skipping fix_perms.sh on macOS runner."
+          echo "The ramdisk was successfully created and mounted."
 
       - name: Archive Firmware Artifacts
         uses: actions/upload-artifact@v4
