@@ -50,16 +50,18 @@ jobs:
           echo "Original image information:"
           hdiutil imageinfo firmware/ramdisk.dmg
 
-          echo "Creating 1.5G raw UDRW image..."
+          echo "Creating 1.5G raw image..."
 
-          hdiutil create \
-            -size 1.5g \
-            -layout NONE \
-            -format UDRW \
-            -o firmware/ramdisk_large.dmg
+          # Create a 1.5 GiB zero-filled raw disk image.
+          dd if=/dev/zero \
+             of=firmware/ramdisk_large.dmg \
+             bs=1m \
+             count=1536
 
-          echo "Large image information:"
-          hdiutil imageinfo firmware/ramdisk_large.dmg
+          sync
+
+          echo "Large image created:"
+          ls -lh firmware/ramdisk_large.dmg
 
           echo "Attaching original ramdisk..."
 
@@ -69,8 +71,8 @@ jobs:
           SOURCE_DEVICE="$(printf '%s\n' "$SOURCE_OUTPUT" | awk 'NR==1 {print $1}')"
 
           if [ -z "$SOURCE_DEVICE" ]; then
-            echo "ERROR: Could not identify source device"
-            exit 1
+              echo "ERROR: Could not identify source device"
+              exit 1
           fi
 
           echo "Source device: $SOURCE_DEVICE"
@@ -83,14 +85,14 @@ jobs:
           DEST_DEVICE="$(printf '%s\n' "$DEST_OUTPUT" | awk 'NR==1 {print $1}')"
 
           if [ -z "$DEST_DEVICE" ]; then
-            echo "ERROR: Could not identify destination device"
-            hdiutil detach "$SOURCE_DEVICE" || true
-            exit 1
+              echo "ERROR: Could not identify destination device"
+              hdiutil detach "$SOURCE_DEVICE" || true
+              exit 1
           fi
 
           echo "Destination device: $DEST_DEVICE"
 
-          echo "Copying original APFS image..."
+          echo "Copying original APFS disk into larger image..."
 
           dd if="$SOURCE_DEVICE" \
              of="$DEST_DEVICE" \
@@ -100,11 +102,9 @@ jobs:
           sync
 
           echo "Detaching source image..."
-
           hdiutil detach "$SOURCE_DEVICE"
 
           echo "Detaching destination image..."
-
           hdiutil detach "$DEST_DEVICE"
 
           echo "Replacing original ramdisk..."
@@ -117,33 +117,30 @@ jobs:
           echo "$ATTACH_OUTPUT"
 
           CONTAINER_DEVICE="$(
-            printf '%s\n' "$ATTACH_OUTPUT" |
-            awk 'NR==2 {print $1}'
+              printf '%s\n' "$ATTACH_OUTPUT" |
+              awk 'NR==2 {print $1}'
           )"
 
           if [ -z "$CONTAINER_DEVICE" ]; then
-            echo "ERROR: Could not identify APFS container"
-            exit 1
+              echo "ERROR: Could not identify APFS container"
+              exit 1
           fi
 
           echo "APFS container device: $CONTAINER_DEVICE"
 
           echo "APFS information before resize:"
-
           diskutil apfs list "$CONTAINER_DEVICE"
 
           echo "Growing APFS container to 1.5G..."
 
           diskutil apfs resizeContainer \
-            "$CONTAINER_DEVICE" \
-            1.5G
+              "$CONTAINER_DEVICE" \
+              1.5G
 
           echo "APFS information after resize:"
-
           diskutil apfs list "$CONTAINER_DEVICE"
 
           echo "Detaching expanded ramdisk..."
-
           hdiutil detach "$CONTAINER_DEVICE"
 
           echo "Expanded ramdisk ready."
