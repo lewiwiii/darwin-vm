@@ -183,8 +183,7 @@ jobs:
 
       - name: Fix Permissions on macOS
         run: |
-          echo "Skipping fix_perms.sh on macOS runner."
-          echo "The ramdisk was successfully created and mounted."
+          printf 'y\n' | ./fix_perms.sh firmware/ramdisk.dmg
 
       - name: Archive Firmware Artifacts
         uses: actions/upload-artifact@v4
