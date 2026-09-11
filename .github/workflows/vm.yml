@@ -31,142 +31,52 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
+          import re
+          
           path = Path("get_files.sh")
-          lines = path.read_text().splitlines(True)
-
+          content = path.read_text()
+          
+          content = re.sub(r"(hdiutil\s+resize\s+-size\s+[^\n]+)", r"# \1", content)
+          
           injection = r'''
-          echo "Converting ramdisk to read/write image..."
-
-          rm -f firmware/ramdisk_rw.dmg
-          rm -f firmware/ramdisk_large.dmg
-
-          hdiutil convert firmware/ramdisk.dmg \
-            -format UDRW \
-            -o firmware/ramdisk_rw.dmg
-
-          mv firmware/ramdisk_rw.dmg firmware/ramdisk.dmg
-
-          echo "Original image information:"
-          hdiutil imageinfo firmware/ramdisk.dmg
-
-          echo "Creating 1.5G raw image..."
-
-          # Create a 1.5 GiB zero-filled raw disk image.
-          dd if=/dev/zero \
-             of=firmware/ramdisk_large.dmg \
-             bs=1m \
-             count=1536
-
-          sync
-
-          echo "Large image created:"
-          ls -lh firmware/ramdisk_large.dmg
-
-          echo "Attaching original ramdisk..."
-
-          SOURCE_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk.dmg)"
-          echo "$SOURCE_OUTPUT"
-
-          SOURCE_DEVICE="$(printf '%s\n' "$SOURCE_OUTPUT" | awk 'NR==1 {print $1}')"
-
-          if [ -z "$SOURCE_DEVICE" ]; then
-              echo "ERROR: Could not identify source device"
-              exit 1
-          fi
-
-          echo "Source device: $SOURCE_DEVICE"
-
-          echo "Attaching large image..."
-
-          DEST_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk_large.dmg)"
-          echo "$DEST_OUTPUT"
-
-          DEST_DEVICE="$(printf '%s\n' "$DEST_OUTPUT" | awk 'NR==1 {print $1}')"
-
-          if [ -z "$DEST_DEVICE" ]; then
-              echo "ERROR: Could not identify destination device"
-              hdiutil detach "$SOURCE_DEVICE" || true
-              exit 1
-          fi
-
-          echo "Destination device: $DEST_DEVICE"
-
-          echo "Copying original APFS disk into larger image..."
-
-          dd if="$SOURCE_DEVICE" \
-             of="$DEST_DEVICE" \
-             bs=512 \
-             count=253952
-
-          sync
-
-          echo "Detaching source image..."
-          hdiutil detach "$SOURCE_DEVICE"
-
-          echo "Detaching destination image..."
-          hdiutil detach "$DEST_DEVICE"
-
-          echo "Replacing original ramdisk..."
-
-          mv firmware/ramdisk_large.dmg firmware/ramdisk.dmg
-
-          echo "Attaching expanded ramdisk..."
-
-          ATTACH_OUTPUT="$(hdiutil attach -nomount firmware/ramdisk.dmg)"
-          echo "$ATTACH_OUTPUT"
-
-          CONTAINER_DEVICE="$(
-              printf '%s\n' "$ATTACH_OUTPUT" |
-              awk 'NR==2 {print $1}'
-          )"
-
-          if [ -z "$CONTAINER_DEVICE" ]; then
-              echo "ERROR: Could not identify APFS container"
-              exit 1
-          fi
-
-          echo "APFS container device: $CONTAINER_DEVICE"
-
-          echo "APFS information before resize:"
-          diskutil apfs list "$CONTAINER_DEVICE"
-
-          echo "Growing APFS container to 1.5G..."
-
-          diskutil apfs resizeContainer \
-              "$CONTAINER_DEVICE" \
-              1.5G
-
-          echo "APFS information after resize:"
-          diskutil apfs list "$CONTAINER_DEVICE"
-
-          echo "Detaching expanded ramdisk..."
-          hdiutil detach "$CONTAINER_DEVICE"
-
+          echo "Cloning into a healthy 1.5GB APFS ramdisk..."
+          rm -f firmware/ramdisk_new.dmg
+          hdiutil create -size 1.5g -fs APFS -volname "ramdisk" firmware/ramdisk_new.dmg
+          
+          mkdir -p /tmp/old_ramdisk /tmp/new_ramdisk
+          hdiutil attach firmware/ramdisk.dmg -mountpoint /tmp/old_ramdisk -nobrowse
+          hdiutil attach firmware/ramdisk_new.dmg -mountpoint /tmp/new_ramdisk -nobrowse
+          
+          echo "Copying files to new image (preserving attributes)..."
+          sudo cp -a /tmp/old_ramdisk/. /tmp/new_ramdisk/
+          
+          hdiutil detach /tmp/old_ramdisk -force || true
+          hdiutil detach /tmp/new_ramdisk -force || true
+          
+          mv firmware/ramdisk_new.dmg firmware/ramdisk.dmg
           echo "Expanded ramdisk ready."
           '''
-
+          
+          # Insert the injection right after the patching echo
+          lines = content.splitlines(True)
           output = []
           injected = False
-
+          
           for line in lines:
               output.append(line)
-
               if "Patching" in line and "echo" in line and not injected:
                   output.append(injection)
                   injected = True
-
+                  
           if not injected:
-              raise SystemExit(
-                  "ERROR: Could not find the expected Patching echo in get_files.sh"
-              )
-
+              raise SystemExit("ERROR: Could not find the expected Patching echo in get_files.sh")
+              
           path.write_text("".join(output))
           PY
-
+          
           chmod +x get_files.sh fix_perms.sh
           ./get_files.sh
-
+          
       - name: Verify extracted firmware
         run: |
           echo "=== Firmware directory ==="
