@@ -155,7 +155,7 @@ git submodule update --init
 cd qemu-sptm
 mkdir build
 cd build
-../configure --target-list=aarch64-softmmu
+../configure --target-list=aarch64-softmmu --disable-pvg
 make -j
 cd ../..
 ```
@@ -264,12 +264,16 @@ git submodule update --init
 cd qemu-sptm
 mkdir build
 cd build
-../configure --target-list=aarch64-softmmu
+../configure --target-list=aarch64-softmmu --disable-pvg
 make -j
 cd ../..
 ```
 
 Qemu will be located at `qemu-sptm/build/qemu-system-aarch64`.
+
+> [!NOTE]
+> Paravirtualized graphics (pvg) doesn't compile as of macOS 27.0; make sure to
+> use `--disable-pvg` when configuring qemu.
 
 ## 4. Run the VM
 
@@ -318,16 +322,13 @@ hdiutil detach mnt
 rmdir mnt
 ```
 
-4. Get the `CDHash` of the binary:
+4. Add the binary's `CDHash` to the hash list:
 
 ```
-codesign -d -vvv hello
+codesign -d -vvv hello 2>&1 | grep -i cdhash= | cut -d= -f2- >> firmware/all_hashes
 ```
 
-look for the field that says `CDHash=...`, that 40-character hash is your `CDHash`.
-
-5. Open `firmware/all_hashes` and add the `CDHash` as a new line at the top of
-   the file. Then, run the following:
+5. Rebuild the trustcache with the updated hash list:
 
 ```
 ./build_tc.py firmware/all_hashes firmware/ramdisk.tc
@@ -340,19 +341,19 @@ bash-3.2# hello
 hello, xnu!
 ```
 
-## 6. Running a custom / `development` kernel
+## 6. Running a custom / development kernel
 
 > [!IMPORTANT]
 > This step requires a Mac.
 
-Apple ships `development` flavors of the kernel via Kernel Debug Kits for
-macOS. You can also try to [compile XNU
-yourself](https://github.com/blacktop/darwin-xnu-build). Using `development`
+Apple ships development flavors of the kernel via Kernel Debug Kits for macOS.
+You can also try to [compile XNU
+yourself](https://github.com/blacktop/darwin-xnu-build). Using development
 kernels is nice because they have extra features and symbols. We can boot these
 with `darwin-vm` too.
 
-To boot a `development` kernel, we need to create a new kernelcache combining
-the kernel we want to use plus all the kexts for the system we're targeting.
+To boot a development kernel, we need to create a new kernelcache combining the
+kernel we want to use plus all the kexts for the system we're targeting.
 
 ### 1. Select a Mac and macOS version. You need to know:
 
@@ -378,7 +379,8 @@ Download the KDK matching your exact macOS version and install it.
 Use `get_files.sh` to fetch a macOS IPSW matching the version we want to debug
 for the specific Mac you want to boot.
 
-For example, if you wanted to run macOS build 25G70 on an M4 Mac Mini, use:
+For example, if you wanted to run macOS build 25G70 on a virtualized M4 Mac
+Mini, use:
 
 ```
 DEVNAME="Mac16,10" URL="https://updates.cdn-apple.com/2026SummerFCS/fullrestores/140-56823/1C29995E-8C11-4384-B9C0-B00145B84F51/UniversalMac_26.6_25G70_Restore.ipsw" ./get_files.sh
@@ -524,7 +526,7 @@ server, or compile/ acquire an `aarch64` GDB and use that. (the [Fractal
 toolchain](https://github.com/jprx/fractal/blob/main/toolchain/mk_toolchain.sh)
 shows how to compile GDB from source, this is what I use).
 
-You can debug iOS or macOS kernels. If you're running a `development` kernel /
+You can debug iOS or macOS kernels. If you're running a development kernel /
 have a KDK, you can use `lldb` to debug with symbols:
 
 ```
@@ -669,6 +671,12 @@ This means you forgot to run `fix_perms` on the ramdisk. Run this and relaunch t
 ```
 ./fix_perms.sh firmware/ramdisk.dmg
 ```
+
+### Compilation fails with `error: 'PGTask_t' is unavailable: obsoleted in macOS 27.0 - No longer supported`
+
+You tried to compile qemu-sptm on macOS 27.0 or newer without disabling
+paravirtualized graphics (PVG). Rerun `configure` with the `--disable-pvg`
+flag, then run `make` again.
 
 ## Is this AI slop?
 
