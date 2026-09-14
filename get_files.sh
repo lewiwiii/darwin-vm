@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/dmgutil.sh"
+
 # Default device: iPhone 16 on iOS 27.0 beta 8
 # I picked iPhone 16 as the default instead of iPhone 17, as it doesn't have MTE and therefore runs faster.
 # (note that iPhone 16's device name is confusingly "iPhone17,3")
@@ -12,6 +15,7 @@ IPSW_BIN="ipsw_db"
 IOS_SYSROOT_TARFILE="ios_sysroot.tar.gz"
 
 ADT_FIXUP="./dt_fixup.py"
+BOOTKC_FIXUP="./patch_bootkc.py"
 NVRAM_BIN="nvram.bin"
 BUILD_TC="./build_tc.py"
 
@@ -35,6 +39,10 @@ ensure_installed() {
 
     if [[ ! -x $(command -v "ipsw") ]]; then
         die "missing ipsw command (brew install ipsw)"
+    fi
+
+    if [[ ! -x $(command -v "wget") ]]; then
+        die "missing wget command (brew install wget)"
     fi
 }
 
@@ -105,6 +113,18 @@ patch_dtree() {
     mv "${dtree}_patch" "${dtree}"
 }
 
+patch_bootkc() {
+    local bootkc
+    bootkc="${FW_DIR}/bootkc"
+
+    if [[ ! -f "${bootkc}" ]]; then
+        die "No bootkc (${bootkc})"
+    fi
+
+    "${BOOTKC_FIXUP}" "${bootkc}" "${bootkc}_patch"
+    mv "${bootkc}_patch" "${bootkc}"
+}
+
 get_firmware() {
     get_file "kernelcache.release.${KERNEL_EXT}" "bootkc"
 
@@ -148,11 +168,6 @@ patch_ramdisk() {
     local ramdisk
     ramdisk="${FW_DIR}/ramdisk.dmg"
 
-    if [[ "$(uname)" != "Darwin" ]]; then
-        echo "This isn't a Mac, so we can't patch the ramdisk- stopping here"
-        exit 0
-    fi
-
     echo "Patching ${ramdisk}"
 
     livemount="$(mktemp -d)"
@@ -161,19 +176,30 @@ patch_ramdisk() {
         die "something's wrong with the livemount, stopping here"
     fi
 
-    # mount with -owners off to perform complicated FS ops without root, later
-    # we can chown everything to root.
-    if ! hdiutil attach -owners off -mountpoint "${livemount}" "${ramdisk}"; then
+    # mount with owners "off" to perform complicated FS ops without root,
+    # later we can chown everything to root (see fix_perms.sh).
+    if ! dmg_attach "${ramdisk}" "${livemount}" off; then
         rmdir "${livemount}"
         die "mount failed"
     fi
 
     echo "mounted ${ramdisk} on ${livemount}"
-    trap 'hdiutil detach ${livemount}; rmdir ${livemount}' EXIT
+    trap 'dmg_detach "${livemount}"; rmdir "${livemount}"' EXIT
 
     if [[ -d "${livemount}/System/Library/LaunchDaemons.old" ]]; then
         echo "already patched"
         return
+    fi
+
+    local sign_cmd hash_cmd
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sign_cmd=(codesign -s -)
+        hash_cmd=(codesign -d -vvv)
+    else
+        # ldid is a Linux-friendly stand-in for ad-hoc codesign; its -S/-h
+        # output is compatible with the codesign parsing below.
+        sign_cmd=(ldid -Cadhoc -S)
+        hash_cmd=(ldid -h)
     fi
 
     mv "${livemount}/System/Library/LaunchDaemons" "${livemount}/System/Library/LaunchDaemons.old"
@@ -187,10 +213,9 @@ patch_ramdisk() {
                 exit 1
             fi
 
-            echo "extracting iOS sysroot..."
             tar xf "${IOS_SYSROOT_TARFILE}" --directory "${livemount}" --strip-components 1
             echo "signing binaries..."
-            find "${livemount}/bin" -type f -exec codesign -s - {} \;
+            find "${livemount}/bin" -type f -exec "${sign_cmd[@]}" {} \;
             ;;
         'macosx')
             ;;
@@ -200,7 +225,7 @@ patch_ramdisk() {
     esac
 
     echo "building trustcache..."
-    find "${livemount}" -type f -exec codesign -d -vvv {} \; 2>&1 | grep -i cdhash= | cut -d= -f2- > "${FW_DIR}/all_hashes"
+    find "${livemount}" -type f -exec "${hash_cmd[@]}" {} \; 2>&1 | grep -i cdhash= | cut -d= -f2- > "${FW_DIR}/all_hashes"
     "${BUILD_TC}" "${FW_DIR}/all_hashes" "${FW_DIR}/ramdisk.tc"
 }
 
@@ -211,6 +236,7 @@ main() {
     get_firmware
     get_ramdisk
     patch_dtree
+    patch_bootkc
     patch_ramdisk
     echo "done!"
 }
