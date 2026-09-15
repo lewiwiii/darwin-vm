@@ -147,7 +147,8 @@ def fixup_sptm(d):
   m.props['slide'] = struct.pack("<QQ", 0,0)
 
   # Skip the iommu init stuff (gfx-shared-region-base & friends)
-  d['arm-io'].remove_child('sgx')
+  if 'sgx' in d['arm-io']:
+    d['arm-io'].remove_child('sgx')
 
 def get_platform_name(d):
   compat = d['arm-io'].props['compatible']
@@ -194,18 +195,38 @@ def fixup(d, nvram_file):
   d['chosen'].props['nvram-total-size'] = f"u32:{len(d['chosen'].props['nvram-proxy-data'])}"
   d['chosen'].props['nvram-bank-size']  = f"u32:{len(d['chosen'].props['nvram-proxy-data'])}"
 
-  if 'InvalidateHmac' in d['arm-io']['sep']['iop-sep-nub']:
-    d['arm-io']['sep']['iop-sep-nub']['InvalidateHmac'].props['config'] = "u32:1"
-    d['arm-io']['sep']['iop-sep-nub']['InvalidateHmac'].props['sio-hmac1-offset'] = "u64:0"
-    d['arm-io']['sep']['iop-sep-nub']['InvalidateHmac'].props['sio-hmac1-disable-mask'] = "u64:0xffffffffffffffff"
+  # Darwin 23's AppleImage4 path expects the legacy secure-boot metadata that
+  # later SPTM/TXM firmware supplies through a different boot flow.
+  d['chosen'].props['research-enabled'] = "u32:1"
+  d['chosen'].props['effective-production-status-ap'] = "u32:1"
+  d['chosen'].props['security-domain'] = "u32:1"
+  d['chosen'].props['chip-epoch'] = "u32:1"
+  d['chosen'].props['amfi-allows-trust-cache-load'] = "u32:1"
+  d['chosen'].props['debug-enabled'] = "u32:0"
+  d['chosen'].props['protected-data-access'] = "u32:0"
 
-  d['arm-io'].remove_child('dockchannel-uart')
+  if 'manifest-properties' not in d['chosen']:
+    manifest_props = ADTNode()
+    manifest_props.props['name'] = 'manifest-properties'
+    d['chosen'].children.append(manifest_props)
+  d['chosen']['manifest-properties'].props['BNCH'] = b'A' * 32
+
+  if 'sep' in d['arm-io']:
+    sep_nub = d['arm-io']['sep']['iop-sep-nub']
+    if 'InvalidateHmac' in sep_nub:
+      sep_nub['InvalidateHmac'].props['config'] = "u32:1"
+      sep_nub['InvalidateHmac'].props['sio-hmac1-offset'] = "u64:0"
+      sep_nub['InvalidateHmac'].props['sio-hmac1-disable-mask'] = "u64:0xffffffffffffffff"
+
+  if 'dockchannel-uart' in d['arm-io']:
+    d['arm-io'].remove_child('dockchannel-uart')
 
   # We don't emulate a SEP. Removing the node entirely (same trick as the
   # 'sgx' removal in fixup_sptm) stops AppleCredentialManager/ ACMTRM from
   # ever discovering a SEP nub to probe, instead of just marking it
   # unavailable via a property (which didn't stop the retry spam).
-  d['arm-io'].remove_child('sep')
+  if 'sep' in d['arm-io']:
+    d['arm-io'].remove_child('sep')
 
   # disable RTC timeout in IOKitInitializeTime
   # IOKitInitializeTime waits for the IORTC resource which never appears since
@@ -265,8 +286,9 @@ def fixup(d, nvram_file):
 
   del_compat(d)
   fixup_aic(d['arm-io']['aic'])
-  fixup_sptm(d)
-  del d.props['secure-root-prefix']
+  if 'SPTM-ro' in d['chosen']['memory-map'].props:
+    fixup_sptm(d)
+  d.props.pop('secure-root-prefix', None)
 
 # returns (length, value)
 def parse_prop_entry(v) -> tuple[int, bytes]:

@@ -18,8 +18,9 @@ qemu-sptm/build/
 
 .DS_Store
 fws/
+linux-apfs-rw/
 qemu-system-aarch64
-qemu-system-aarch64Zone.Identifier
+qemu-system-aarch64:Zone.Identifier
 nvram.20bin
 nvram.32bin
 nvram.48bin
