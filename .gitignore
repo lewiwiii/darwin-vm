@@ -19,3 +19,11 @@
 .DS_Store
 firmware
 ipsw_db
+/fws/
+qemu-system-aarch64
+qemu-system-aarch64Zone.Identifier
+nvram.20bin
+nvram.32bin
+nvram.48bin
+nvram.nonce-test
+boot.log
